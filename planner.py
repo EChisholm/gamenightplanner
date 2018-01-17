@@ -61,7 +61,7 @@ def main():
     games = {}
     for g,v in enumerate(json_games):
         games[g] = (Game(v['name'], v['count']))
-
+    number_of_games = len(games)
     players = []
     for p, v in enumerate(json_players):
         players.append(Player(v['name'], v['rankings']))
@@ -69,18 +69,23 @@ def main():
     players_to_allocate = set(players)
     games_to_fill = set(games.keys())
 
-    for gameID in games_to_fill:
-        current_game = games[gameID]
-        game_queue = Queue.PriorityQueue()
-        for player in players_to_allocate:
-            if player.has_rankings():
-                game_queue.put((player.ranking(gameID), player))
-            else:
-                game_queue.put((len(games), player))
-        while not current_game.at_capacity():
-            scheduled_player = game_queue.get()[1]
-            if current_game.add_player(scheduled_player):
-                players_to_allocate.remove(scheduled_player)
+    for priority_level in range(1, number_of_games+1):
+        for gameID in games_to_fill:
+            current_game = games[gameID]
+            game_queue = Queue.PriorityQueue()
+
+            for player in players_to_allocate:
+
+                if player.has_rankings():
+                    if player.ranking(gameID) <= priority_level:
+                        game_queue.put((player.ranking(gameID), player))
+                elif priority_level == number_of_games:
+                    game_queue.put((priority_level, player))
+            while not game_queue.empty():
+                scheduled_player = game_queue.get()[1]
+                if current_game.add_player(scheduled_player):
+                    print scheduled_player
+                    players_to_allocate.remove(scheduled_player)
 
     for g in games.values():
         print(g)
