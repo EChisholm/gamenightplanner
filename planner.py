@@ -1,6 +1,5 @@
-import sys
-import argparse
 import Queue
+import argparse
 import json
 
 
@@ -11,9 +10,10 @@ class Game:
         self.players = []
 
     def __repr__(self):
-        return "<Game name:%s player_count:%s players:%s>" % (self.name, self.player_count, self.players)
+        return "<Game name:%s player_count:%s players:%s>" % (self.name, len(self.players), self.players)
+
     def __str__(self):
-        return "Game %s has %s players and they are %s" %(self.name, self.player_count, self.players)
+        return "Game %s has %s players and they are %s" % (self.name, len(self.players), self.players)
 
     def at_capacity(self):
         return len(self.players) == self.player_count
@@ -21,74 +21,102 @@ class Game:
     def add_player(self, player):
         if not self.at_capacity():
             self.players.append(player)
+            # print self
             return True
         else:
-            print("Game is at capacity!")
+            print("Sorry %s Game %s is at capacity!") % (player, self.name)
             return False
 
+
 class Player:
-    def __init__(self, name, rankings):
+    def __init__(self, name, rankings, priority):
         self.name = name
-        self.priorities = rankings
+        self.rankings = rankings
+        self.priority = priority
 
     def __repr__(self):
-        return "<Player name:%s priorities:%s" %(self.name, self.priorities)
+        return "<Player name:%s priorities:%s" % (self.name, self.rankings)
+
     def __str__(self):
-        return "From str method of Player: name is %s, priorities are %s" %(self.name, self.priorities)
+        return "From str method of Player: name is %s, rankings are %s and they have priority %s" % (
+        self.name, self.rankings, self.priority)
 
     def ranking(self, gameID):
-        return self.priorities[gameID]
+        return self.rankings[gameID - 1]
+
+    def modify_priority(self, new_value):
+        self.priority = self.priority + new_value
 
     def has_rankings(self):
-        return len(self.priorities)
-
+        if len(self.rankings) == 0:
+            return False
+        else:
+            return True
 
 
 def main():
     parser = argparse.ArgumentParser(description="A simple tool to help you optimize your next board game night. See the README for more info!")
     parser.add_argument('-i', '--input', default='data/example.json')
+    parser.add_argument('-p', '--priority', default='data/priority.json')
     opts = parser.parse_args()
 
     try:
-        json_object = json.load(open(opts.input))
+        json_input = json.load(open(opts.input))
+        json_priority = json.load(open(opts.priority))
 
     except IOError:
-        print "Something went wrong when reading your input file. Does it exist?"
-
-    json_games = json_object['games']
-    json_players = json_object['players']
+        print "Something went wrong when reading your input files. Do they exist?"
+        raise
+    json_games = json_input['games']
+    json_players = json_input['players']
 
     games = {}
-    for g,v in enumerate(json_games):
+    for g, v in enumerate(json_games, start=1):
         games[g] = (Game(v['name'], v['count']))
+
     number_of_games = len(games)
+
     players = []
     for p, v in enumerate(json_players):
-        players.append(Player(v['name'], v['rankings']))
+        try:
+            priority = json_priority[v['name']]
+        except KeyError:
+            priority = 0
+        players.append(Player(v['name'], v['rankings'], priority))
 
-    players_to_allocate = set(players)
-    games_to_fill = set(games.keys())
+    player_queue = Queue.PriorityQueue()
+    for p in players:
+        player_queue.put((p.priority, p))
 
-    for priority_level in range(1, number_of_games+1):
-        for gameID in games_to_fill:
-            current_game = games[gameID]
-            game_queue = Queue.PriorityQueue()
+    score = 0
+    leftover_players = []
+    while not player_queue.empty():
+        current_player_to_allocate = player_queue.get()[1]
+        if current_player_to_allocate.has_rankings():
+            for value, ranking in enumerate(current_player_to_allocate.rankings, start=1):
+                if games[ranking].add_player(current_player_to_allocate):
+                    score += value
+                    current_player_to_allocate.modify_priority(-1 * value)
+                    break
+        else:
+            leftover_players.append(current_player_to_allocate)
 
-            for player in players_to_allocate:
+    for gameID, game in games.iteritems():
+        while not game.at_capacity():
+            for current_player in leftover_players:
+                if game.add_player(current_player):
+                    leftover_players.remove(current_player)
 
-                if player.has_rankings():
-                    if player.ranking(gameID) <= priority_level:
-                        game_queue.put((player.ranking(gameID), player))
-                elif priority_level == number_of_games:
-                    game_queue.put((priority_level, player))
-            while not game_queue.empty():
-                scheduled_player = game_queue.get()[1]
-                if current_game.add_player(scheduled_player):
-                    print scheduled_player
-                    players_to_allocate.remove(scheduled_player)
+    player_priorities_for_json = {}
+    for player in players:
+        player_priorities_for_json[player.name] = player.priority
 
-    for g in games.values():
-        print(g)
+    with open('data/priority.json', 'w') as f:
+        json.dump(player_priorities_for_json, f)
+
+    print"Result of score: %s " % score
+    for gameID, game in games.iteritems():
+        print (gameID, game)
 
 # convention to allow import of this file as a module
 if __name__ == '__main__':
